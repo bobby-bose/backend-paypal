@@ -46,7 +46,7 @@ app.post('/api/start-payment', async (req, res) => {
         message: "Payment for goods",
         merchantUrls: {
           redirectUrl: 'https://www.google.com/',
-          callbackUrl: 'https://backend-demo-payment-kqut.onrender.com/api/payment-callback'
+          callbackUrl: 'https://backend-paypal.onrender.com/api/payment-callback'
         }
       }
     };
