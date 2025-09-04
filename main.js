@@ -3,7 +3,7 @@ import bodyParser from "body-parser";
 import { StandardCheckoutClient, Env } from "pg-sdk-node";
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 // Capture raw body (needed for PhonePe validation)
 app.use(bodyParser.json({
@@ -18,7 +18,7 @@ const CLIENT_SECRET = "fbf66a20-f2fc-4df8-b21b-242f5de3d741";
 const CLIENT_VERSION = 1;
 const USERNAME = "admin";
 const PASSWORD = "password37";
-const ENV = Env.PRODUCTION;
+const ENV = Env.PRODUCTION; // Use PRODUCTION for live
 
 // Initialize PhonePe client
 const client = StandardCheckoutClient.getInstance(
@@ -30,18 +30,26 @@ const client = StandardCheckoutClient.getInstance(
 
 // -------------------- WEBHOOK ENDPOINT --------------------
 app.post("/phonepe/webhook", (req, res) => {
+  console.log("--------------------------------------------------");
+  console.log("📌 Webhook called");
+  console.log("Method:", req.method);
+  console.log("Query:", req.query);
+  console.log("Headers:", req.headers);
+  console.log("Raw Body:", req.rawBody);
+
   try {
     const authHeader = req.headers["authorization"];
     const rawBody = req.rawBody;
 
     let callbackResponse;
 
-    // ✅ Bypass validation if manual testing
+    // ✅ Manual test mode
     if (process.env.NODE_ENV === "development" || req.query.test === "true") {
       console.log("⚡ Manual test mode: skipping validation");
       callbackResponse = JSON.parse(rawBody);
     } else {
       if (!authHeader || !rawBody) {
+        console.warn("❌ Missing authorization or body");
         return res.status(400).send("Missing authorization or body");
       }
       // Validate callback authenticity
@@ -78,11 +86,12 @@ app.post("/phonepe/webhook", (req, res) => {
     res.status(200).send("OK");
   } catch (error) {
     console.error("❌ Webhook processing failed:", error.message);
+    console.error(error.stack);
     res.status(400).send("Invalid callback");
   }
 });
 
 // -------------------- START SERVER --------------------
 app.listen(PORT, () => {
-  console.log(`🚀 Webhook server running on port ${PORT}`);
+  console.log(`🚀 Webhook server running on http://localhost:${PORT}`);
 });
