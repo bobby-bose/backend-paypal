@@ -108,37 +108,41 @@ app.post('/api/start-payment', async (req, res) => {
 // -------------------- LOCAL CALLBACK HANDLER (for PhonePe simulation) --------------------
 // -------------------- WEBHOOK HANDLER --------------------
 app.post('/payment-callback', async (req, res) => {
-  const webhookData = req.body;
-  console.log('[Webhook]: Data received from PhonePe:', webhookData);
+    const webhookData = req.body;
+    console.log('[Webhook]: Data received from PhonePe:', webhookData);
 
-  // Extract common info
-  const eventType = webhookData.eventType; // The webhook event type
-  const merchantOrderId = webhookData.merchantOrderId || webhookData.orderId;
+    // Extract common info
+    const eventType = webhookData.eventType; // The webhook event type
+    const merchantOrderId = webhookData.merchantOrderId || webhookData.orderId || 'Unknown Order ID';
 
-  // Handle different events
-  switch (eventType) {
-    case 'pg.order.completed':
-    case 'paylink.order.completed':
-    case 'subscription.redemption.order.completed':
-      console.log(`[Webhook]: Payment SUCCESS for order ${merchantOrderId} ✅`);
-      // TODO: update your DB/order status here
-      break;
+    // Define event categories
+    const successEvents = [
+        'pg.order.completed',
+        'paylink.order.completed',
+        'subscription.redemption.order.completed'
+    ];
 
-    case 'pg.order.failed':
-    case 'paylink.order.failed':
-    case 'subscription.redemption.order.failed':
-    case 'subscription.notification.failed':
-    case 'settlement.attempt.failed':
-      console.log(`[Webhook]: Payment FAILED for order ${merchantOrderId} ❌`);
-      // TODO: update your DB/order status here
-      break;
+    const failedEvents = [
+        'pg.order.failed',
+        'paylink.order.failed',
+        'subscription.redemption.order.failed',
+        'subscription.notification.failed',
+        'settlement.attempt.failed'
+    ];
 
-    default:
-      console.log(`[Webhook]: Unhandled event type ${eventType}`);
-  }
+    // Handle different events
+    if (successEvents.includes(eventType)) {
+        console.log(`[Webhook]: Payment SUCCESS for order ${merchantOrderId} ✅`);
+        // TODO: update your DB/order status here
+    } else if (failedEvents.includes(eventType)) {
+        console.log(`[Webhook]: Payment FAILED for order ${merchantOrderId} ❌`);
+        // TODO: update your DB/order status here
+    } else {
+        console.log(`[Webhook]: Unhandled event type ${eventType}`);
+    }
 
-  // Respond to PhonePe
-  res.status(200).send('Webhook received successfully');
+    // Respond to PhonePe
+    res.status(200).send('Webhook received successfully');
 });
 
 
