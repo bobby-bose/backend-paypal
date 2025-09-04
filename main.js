@@ -1,158 +1,90 @@
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
+import express from "express";
+import bodyParser from "body-parser";
+import { StandardCheckoutClient, Env } from "pg-sdk-node";
+
 const app = express();
 const PORT = 5000;
 
-app.use(cors());
-app.use(express.json());
-
-// -------------------- CONFIG --------------------
-const CLIENT_ID = 'SU2509011920199571786178';
-const CLIENT_VERSION = '1';
-const CLIENT_SECRET = 'fbf66a20-f2fc-4df8-b21b-242f5de3d741';
-
-// -------------------- UTILITY: GET ACCESS TOKEN --------------------
-async function getAccessToken() {
-  console.log('[AccessToken]: Generating new access token...');
-  const body = `client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&client_version=${CLIENT_VERSION}&grant_type=client_credentials`;
-
-  const tokenResponse = await axios.post(
-    'https://api.phonepe.com/apis/identity-manager/v1/oauth/token',
-    body,
-    { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-  );
-
-  console.log('[AccessToken]: Access token received:', tokenResponse.data.access_token);
-  return tokenResponse.data.access_token;
-}
-
-// -------------------- START PAYMENT AND CHECK STATUS --------------------
-app.post('/api/start-payment', async (req, res) => {
-  console.log('[StartPayment]: Request received', req.body);
-  const { amount, userId } = req.body;
-
-  if (!amount || !userId) {
-    console.log('[StartPayment]: ERROR - Amount or UserId missing!');
-    return res.status(400).json({ error: 'Amount and userId are required.' });
+// ✅ Capture raw body (needed for validation)
+app.use(bodyParser.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
   }
+}));
 
+// -------------------- PRODUCTION CONFIG --------------------
+const CLIENT_ID = "SU2509011920199571786178";
+const CLIENT_SECRET = "fbf66a20-f2fc-4df8-b21b-242f5de3d741";
+const CLIENT_VERSION = 1; // Check your PhonePe dashboard for correct version
+const USERNAME = "admin"; // Merchant username configured with PhonePe
+const PASSWORD = "password37"; // Merchant password configured with PhonePe
+const ENV = Env.PRODUCTION; // ✅ PRODUCTION environment
+
+// ✅ Initialize PhonePe client
+const client = StandardCheckoutClient.getInstance(
+  CLIENT_ID,
+  CLIENT_SECRET,
+  CLIENT_VERSION,
+  ENV
+);
+
+// -------------------- WEBHOOK ENDPOINT --------------------
+app.post("/phonepe/webhook", (req, res) => {
   try {
-    const accessToken = await getAccessToken();
-    console.log('[StartPayment]: Access token obtained.');
+    const authHeader = req.headers["authorization"];
+    const rawBody = req.rawBody;
 
-    const merchantOrderId = "TX" + Date.now();
-    console.log('[StartPayment]: Generated merchantOrderId:', merchantOrderId);
-
-    const paymentBody = {
-      merchantOrderId,
-      amount: parseInt(amount, 10) * 100, // Amount in paise
-      paymentFlow: {
-        type: "PG_CHECKOUT",
-        message: "Payment for goods",
-        merchantUrls: {
-          redirectUrl: 'https://www.google.com/', // local redirect for testing
-          callbackUrl: 'https://backend-paypal.onrender.com/payment-callback' // local callback
-        }
-      }
-    };
-
-    console.log('[StartPayment]: Payment body prepared:', paymentBody);
-
-    // Initiate payment
-    const redirectResponse = await axios.post(
-      'https://api.phonepe.com/apis/pg/checkout/v2/pay',
-      paymentBody,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `O-Bearer ${accessToken}`
-        }
-      }
-    );
-
-    const redirectUrl = redirectResponse.data.redirectUrl;
-    console.log('[StartPayment]: Redirect URL received:', redirectUrl);
-
-    // Immediately poll payment status
-    console.log('[StartPayment]: Polling payment status...');
-    const statusResponse = await axios.get(
-      `https://api.phonepe.com/apis/pg/checkout/v2/order/${merchantOrderId}/status?details=true`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `O-Bearer ${accessToken}`
-        }
-      }
-    );
-
-    const orderData = statusResponse.data;
-    console.log('[StartPayment]: Status response:', orderData);
-
-    const isPaid = orderData.paymentDetails?.some(p => p.state === 'COMPLETED');
-    console.log('[StartPayment]: Payment COMPLETED?', isPaid);
-
-    res.json({
-      merchantOrderId,
-      redirectUrl,
-      status: isPaid ? 'SUCCESS' : 'PENDING',
-      rawData: orderData
-    });
-
-  } catch (error) {
-    console.error('[StartPayment]: API call failed:', error.response ? error.response.data : error.message);
-    res.status(500).json({ error: 'Failed to complete API sequence' });
-  }
-});
-
-// -------------------- LOCAL CALLBACK HANDLER (for PhonePe simulation) --------------------
-// -------------------- WEBHOOK HANDLER --------------------
-app.post('/payment-callback', async (req, res) => {
-    const webhookData = req.body;
-    console.log('[Webhook]: Data received from PhonePe:', webhookData);
-
-    // Extract common info
-    const eventType = webhookData.eventType; // The webhook event type
-    const merchantOrderId = webhookData.merchantOrderId || webhookData.orderId || 'Unknown Order ID';
-
-    // Define event categories
-    const successEvents = [
-        'pg.order.completed',
-        'paylink.order.completed',
-        'subscription.redemption.order.completed'
-    ];
-
-    const failedEvents = [
-        'pg.order.failed',
-        'paylink.order.failed',
-        'subscription.redemption.order.failed',
-        'subscription.notification.failed',
-        'settlement.attempt.failed'
-    ];
-
-    // Handle different events
-    if (successEvents.includes(eventType)) {
-        console.log(`[Webhook]: Payment SUCCESS for order ${merchantOrderId} ✅`);
-        // TODO: update your DB/order status here
-    } else if (failedEvents.includes(eventType)) {
-        console.log(`[Webhook]: Payment FAILED for order ${merchantOrderId} ❌`);
-        // TODO: update your DB/order status here
-    } else {
-        console.log(`[Webhook]: Unhandled event type ${eventType}`);
+    if (!authHeader || !rawBody) {
+      return res.status(400).send("Missing authorization or body");
     }
 
-    // Respond to PhonePe
-    res.status(200).send('Webhook received successfully');
-});
+    // ✅ Validate callback authenticity
+    const callbackResponse = client.validateCallback(
+      USERNAME,
+      PASSWORD,
+      authHeader,
+      rawBody
+    );
 
+    // Extract details
+    const { type, payload } = callbackResponse;
+    console.log("📩 Webhook Received:", type);
+    console.log("Payload:", JSON.stringify(payload, null, 2));
 
-// -------------------- LOCAL REDIRECT HANDLER --------------------
-app.get('/redirect', (req, res) => {
-  console.log('[Redirect]: Redirect called by PhonePe.');
-  res.send('Payment redirect hit.');
+    // ✅ Handle events
+    switch (type) {
+      case "CHECKOUT_ORDER_COMPLETED":
+        console.log(`✅ Payment success for order ${payload.originalMerchantOrderId}`);
+        // 👉 Update your DB (mark order as paid)
+        break;
+
+      case "CHECKOUT_ORDER_FAILED":
+        console.log(`❌ Payment failed for order ${payload.originalMerchantOrderId}`);
+        // 👉 Update your DB (mark order as failed)
+        break;
+
+      case "PG_REFUND_COMPLETED":
+        console.log(`💸 Refund completed for refund ID ${payload.merchantRefundId}`);
+        // 👉 Update DB refund status
+        break;
+
+      case "PG_REFUND_FAILED":
+        console.log(`⚠️ Refund failed for refund ID ${payload.merchantRefundId}`);
+        break;
+
+      default:
+        console.log("ℹ️ Unhandled webhook type:", type);
+    }
+
+    // ✅ Respond success to PhonePe
+    res.status(200).send("OK");
+  } catch (error) {
+    console.error("❌ Webhook validation failed:", error.message);
+    res.status(400).send("Invalid callback");
+  }
 });
 
 // -------------------- START SERVER --------------------
 app.listen(PORT, () => {
-  console.log(`✅ Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Webhook server running on port ${PORT} (Production Mode)`);
 });
