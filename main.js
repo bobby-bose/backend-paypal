@@ -52,7 +52,7 @@ app.post('/api/start-payment', async (req, res) => {
         message: "Payment for goods",
         merchantUrls: {
           redirectUrl: 'https://www.google.com/', // local redirect for testing
-          callbackUrl: 'http://localhost:5000/payment-callback' // local callback
+          callbackUrl: 'https://backend-paypal.onrender.com/payment-callback' // local callback
         }
       }
     };
